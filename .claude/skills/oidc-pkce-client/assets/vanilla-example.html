@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OIDC Login (Vanilla JS)</title>
+  </head>
+  <body>
+    <script>
+      // Must be defined BEFORE the oidc_client.js <script> tag below.
+      window.OIDC_CONFIG = {
+        client_id: 'YOUR_CLIENT_ID',
+        authorization_endpoint: 'https://your-idp.example.com/authorize',
+        token_endpoint: 'https://your-idp.example.com/token',
+        end_session_endpoint: 'https://your-idp.example.com/logout',
+        scope: 'openid profile email', // optional, this is the default
+        redirect_uri: window.location.origin, // optional; defaults to this page's own URL
+        // refresh_buffer_seconds: 60,  // optional
+        // autoLogin: true,             // optional; set false to show a manual "Log in" button instead
+      };
+    </script>
+    <script src="/oidc_client.js"></script>
+
+    <div id="root"><p>Loading…</p></div>
+
+    <script>
+      const root = document.getElementById('root');
+
+      function render() {
+        const user = window.oidcUser;
+        if (!user) {
+          root.innerHTML = '<p>Loading…</p>';
+          return;
+        }
+        root.innerHTML = '';
+
+        const heading = document.createElement('h1');
+        heading.textContent = `Hello, ${user.name || user.preferred_username || 'there'} ${user.email || ''}`;
+
+        const logoutButton = document.createElement('button');
+        logoutButton.textContent = 'Log Out';
+        logoutButton.addEventListener('click', () => window.logout());
+
+        root.appendChild(heading);
+        root.appendChild(logoutButton);
+      }
+
+      window.addEventListener('oidc:authenticated', render);
+      window.addEventListener('oidc:unauthenticated', render);
+      render(); // in case oidc_client.js's bootstrap already ran before this loaded
+    </script>
+  </body>
+</html>
