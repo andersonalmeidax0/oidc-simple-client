@@ -42,6 +42,9 @@ HTML, vanilla JS, React, or anything else that runs in a browser.
 
 ## Configuration (`window.OIDC_CONFIG`)
 
+Use the jsdelivr published version in your html.
+https://cdn.jsdelivr.net/gh/andersonalmeidax0/oidc-simple-client@v1.0.0/public/oidc_client.js
+
 Define this **before** the `<script src="oidc_client.js">` tag:
 
 ```js
