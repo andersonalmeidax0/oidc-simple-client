@@ -15,28 +15,19 @@
       // dev proxy at /oidc-proxy/token (see vite.config.js) — the same fix
       // used by src/oidc/OidcClient.jsx, needed because this Keycloak client
       // rejects any fetch() carrying a browser Origin header.
-      window.OIDC_CONFIG0 = {
-        client_id: 'react-client',
-        authorization_endpoint: 'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/auth',
-        token_endpoint: '/oidc-proxy/token',
-        end_session_endpoint: 'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/logout',
-        scope: 'openid profile email offline_access',
-      };
       window.OIDC_CONFIG = {
       client_id: 'demo-client',
       authorization_endpoint: 'http://localhost:3000/realms/default/authorize',
       token_endpoint:  '/oidc-proxy/token',
-      //token_endpoint:  'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/token',
       end_session_endpoint: 'http://localhost:3000/realms/default/logout',
       scope: 'openid profile email',
       redirect_uri: `${window.location.origin}`,   //pode ser assim, ele busca pelos parametros
-      //redirect_uri: `${window.location.origin}/auth/callback`,  
       };
       
     </script>
     <script src="/oidc_client.js"></script>
 
     <div id="root"></div>
-    <script type="module" src="/src/simple-main.jsx"></script>
+    <script type="module" src="/src/react/App.jsx"></script>
   </body>
 </html>

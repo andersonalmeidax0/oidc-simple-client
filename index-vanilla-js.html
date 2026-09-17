@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Vanilla JS OIDC Page</title>
+  </head>
+  <body>
+    <script>
+      // Same IdP config as index-react.html. redirect_uri is derived from
+      // this page's own URL by oidc_client.js, so no extra routing needed.
+      // token_endpoint goes through the dev proxy at /oidc-proxy/token (see
+      // vite.config.js) because this Keycloak client rejects any fetch()
+      // carrying a browser Origin header.
+      window.OIDC_CONFIG = {
+        client_id: 'demo-client',
+        authorization_endpoint: 'http://localhost:3000/realms/default/authorize',
+        token_endpoint: '/oidc-proxy/token',
+        end_session_endpoint: 'http://localhost:3000/realms/default/logout',
+        scope: 'openid profile email',
+        redirect_uri: `${window.location.origin}`,
+      };
+    </script>
+    <script src="/oidc_client.js"></script>
+
+    <div id="root">
+      <p>Loading…</p>
+    </div>
+
+    <script>
+      // Plain-DOM equivalent of SimpleOidcPage.jsx: oidc_client.js does all
+      // the PKCE/login/refresh work and exposes window.oidcUser /
+      // window.logout as globals; this just mirrors that state into markup.
+      const root = document.getElementById('root');
+
+      function render() {
+        const user = window.oidcUser;
+        if (!user) {
+          root.innerHTML = '<p>Loading…</p>';
+          return;
+        }
+        const name = user.name || user.preferred_username || 'there';
+        root.innerHTML = '';
+
+        const heading = document.createElement('h1');
+        heading.textContent = `Hello, ${name} ${user.email || ''}`;
+
+        const logoutButton = document.createElement('button');
+        logoutButton.textContent = 'Log Out';
+        logoutButton.addEventListener('click', () => window.logout());
+
+        root.appendChild(heading);
+        root.appendChild(logoutButton);
+      }
+
+      window.addEventListener('oidc:authenticated', render);
+      window.addEventListener('oidc:unauthenticated', render);
+      render(); // in case oidc_client.js's bootstrap already ran before this loaded
+    </script>
+  </body>
+</html>

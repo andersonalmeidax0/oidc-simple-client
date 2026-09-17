@@ -22,6 +22,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         simple: resolve(__dirname, 'simple.html'),
+        vanilla: resolve(__dirname, 'index-vanilla-js.html'),
       },
     },
   },
