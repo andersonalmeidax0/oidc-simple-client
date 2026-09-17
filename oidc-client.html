@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vanilla JS OIDC Client (PKCE)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      margin: 0;
+      background-color: #f9f9f9;
+    }
+    nav {
+      padding: 1rem;
+      background: #f0f2f5;
+      border-bottom: 1px solid #ddd;
+    }
+    .url-badge {
+      background: #e1f5fe;
+      color: #0288d1;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    main {
+      padding: 2rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .card {
+      padding: 2rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fff;
+      text-align: center;
+    }
+    .status-box {
+      background: #f8f9fa;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 6px;
+      text-align: left;
+    }
+    .button-secondary {
+      padding: 10px 20px;
+      background: #d32f2f;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .error-box {
+      color: #d32f2f;
+      background: #ffebee;
+      padding: 1rem;
+      border-radius: 4px;
+      text-align: left;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <strong>Vanilla JS OIDC Client</strong> |
+    <span class="url-badge" id="redirect-uri-badge"></span>
+  </nav>
+
+  <main>
+    <div id="view-home" class="card hidden">
+      <h1>OIDC Web Application</h1>
+      <div id="home-authenticated" class="hidden">
+        <p>Welcome, <strong id="user-name"></strong> (<span id="user-email"></span>)</p>
+        <div class="status-box">
+          <p><strong>App Status:</strong> Authenticated</p>
+          <p><strong>Token Status:</strong> <span id="token-status">Idle</span></p>
+          <p><strong>Access Token Expiry:</strong> <span id="token-expiry"></span></p>
+        </div>
+        <button class="button-secondary" onclick="logout()">Log Out</button>
+      </div>
+      <div id="home-redirecting" class="hidden">
+        <h2>Redirecting to Login...</h2>
+        <p>Please wait while we transfer you to the Identity Provider.</p>
+      </div>
+    </div>
+
+    <div id="view-callback" class="card hidden">
+      <h2>Processing Callback...</h2>
+      <p id="callback-status">Validating response state...</p>
+      <div id="callback-error" class="error-box hidden">
+        <p id="callback-error-message"></p>
+        <a href="#" id="callback-return-home">Return Home</a>
+      </div>
+    </div>
+
+    <div id="view-logged-out" class="card hidden">
+      <h2>Logged Out</h2>
+      <p>You have been successfully logged out.</p>
+      <a href="#" id="logged-out-login-again">Log In Again</a>
+    </div>
+  </main>
+
+  <script>
+    // This client has no "Web Origins" configured in Keycloak, so it rejects
+    // any browser fetch() to the token endpoint with 403 "Invalid origin"
+    // (the Origin header alone triggers it, CORS headers aside). A plain
+    // static page has no way to strip that header itself. Fixing this for
+    // real requires either enabling Web Origins for this client in Keycloak,
+    // or fronting the token endpoint with a server-side proxy that strips
+    // Origin/Referer (see vite.config.js in the sibling React project for a
+    // working example of the latter).
+    window.OIDC_CONFIG = {
+      client_id: 'react-client',
+      authorization_endpoint: 'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/auth',
+      token_endpoint: 'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/token',
+      end_session_endpoint: 'https://usw2.auth.ac/auth/realms/aakeycloackdeploy/protocol/openid-connect/logout',
+      scope: 'openid profile email offline_access',
+      refresh_buffer_seconds: 60,
+    };
+  </script>
+  <script src="oidc_client.js"></script>
+  <script>
+   /*
+   *  - the script automatically, on page load, will: 
+   *      a.calls "initPageStateListener"
+   *      b.start the listener: it is responsible for check if has auth cookie, redirects, and response callback base on url parameters check
+   *      c.automatically calls window.logon() if needed
+   *      d.script will expose window variables: access_token, id_token_ oidbUser
+   *  - add your listers to events in html: authenticated,  then get id_token, oidcUser; unauthenticated: handle properly
+   *  - call window.logout() from your page to implement logout.
+   */
+
+    'use strict';
+
+    // View / rendering — page-specific glue that reacts to oidc_client.js's
+    // events. The library itself knows nothing about this markup.
+    const SELF_URL = window.location.origin + window.location.pathname;
+
+    const View = {
+      els: {},
+
+      cacheEls() {
+        this.els = {
+          viewHome: document.getElementById('view-home'),
+          viewCallback: document.getElementById('view-callback'),
+          viewLoggedOut: document.getElementById('view-logged-out'),
+          homeAuthenticated: document.getElementById('home-authenticated'),
+          homeRedirecting: document.getElementById('home-redirecting'),
+          userName: document.getElementById('user-name'),
+          userEmail: document.getElementById('user-email'),
+          tokenStatus: document.getElementById('token-status'),
+          tokenExpiry: document.getElementById('token-expiry'),
+          callbackStatus: document.getElementById('callback-status'),
+          callbackError: document.getElementById('callback-error'),
+          callbackErrorMessage: document.getElementById('callback-error-message'),
+        };
+      },
+
+      hideAll() {
+        this.els.viewHome.classList.add('hidden');
+        this.els.viewCallback.classList.add('hidden');
+        this.els.viewLoggedOut.classList.add('hidden');
+      },
+
+      renderAuthenticated(user, expiresAt) {
+        this.hideAll();
+        this.els.viewHome.classList.remove('hidden');
+        this.els.homeAuthenticated.classList.remove('hidden');
+        this.els.homeRedirecting.classList.add('hidden');
+        this.els.userName.innerText = user?.name || user?.preferred_username || 'user';
+        this.els.userEmail.innerText = user?.email || '';
+        this.els.tokenStatus.innerText = 'Authenticated';
+        this.els.tokenExpiry.innerText = new Date(expiresAt).toLocaleTimeString();
+      },
+
+      renderRedirecting(loggedOut) {
+        if (loggedOut) {
+          this.hideAll();
+          this.els.viewLoggedOut.classList.remove('hidden');
+          return;
+        }
+        this.hideAll();
+        this.els.viewHome.classList.remove('hidden');
+        this.els.homeAuthenticated.classList.add('hidden');
+        this.els.homeRedirecting.classList.remove('hidden');
+      },
+
+      renderCallbackPending() {
+        this.hideAll();
+        this.els.viewCallback.classList.remove('hidden');
+        this.els.callbackStatus.classList.remove('hidden');
+        this.els.callbackError.classList.add('hidden');
+        this.els.callbackStatus.innerText = 'Exchanging code for tokens...';
+      },
+
+      renderCallbackError(message) {
+        this.els.callbackStatus.classList.add('hidden');
+        this.els.callbackError.classList.remove('hidden');
+        this.els.callbackErrorMessage.innerText = message;
+      },
+
+      updateTokenExpiry(expiresAt) {
+        this.els.tokenStatus.innerText = `Refreshed at ${new Date().toLocaleTimeString()}`;
+        this.els.tokenExpiry.innerText = new Date(expiresAt).toLocaleTimeString();
+      },
+    };
+
+    // Run immediately, not on DOMContentLoaded: these <script> tags sit at
+    // the end of <body>, so every element above is already parsed into the
+    // DOM. This must also happen *before* oidc_client.js's own
+    // DOMContentLoaded-deferred bootstrap fires its first event — otherwise
+    // the event listeners below would still be unregistered when it does.
+    View.cacheEls();
+    document.getElementById('redirect-uri-badge').innerText = `Redirect URI: ${SELF_URL}`;
+    document.getElementById('callback-return-home').addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.href = SELF_URL;
+    });
+    document.getElementById('logged-out-login-again').addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.href = SELF_URL;
+    });
+
+    window.addEventListener('oidc:authenticated', (e) => View.renderAuthenticated(e.detail.user, e.detail.expiresAt));
+    window.addEventListener('oidc:unauthenticated', (e) => View.renderRedirecting(e.detail.loggedOut));
+    window.addEventListener('oidc:callbackStart', () => View.renderCallbackPending());
+    window.addEventListener('oidc:callbackError', (e) => View.renderCallbackError(e.detail.message));
+    window.addEventListener('oidc:tokenRefreshed', (e) => View.updateTokenExpiry(e.detail.expiresAt));
+  </script>
+</body>
+</html>
