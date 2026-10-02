@@ -1,6 +1,6 @@
 ---
 name: oidc-pkce-client
-description: Drop a dependency-free OIDC Authorization Code + PKCE login+logout client into ANY web project (vanilla JS or React), copying the bundled oidc_client.js and wiring it up. Use when a user asks to add login, sign-in, authentication, logout, or OIDC/PKCE integration to a project, page, or component — in any repo, not just this one.
+description: Drop a dependency-free OIDC Authorization Code + PKCE login+logout client into ANY web project (vanilla JS or React), copying the bundled oidc_client.js and wiring it up, plus a Node.js server-side JWT validator (signature, issuer, audience). Use when a user asks to add login, sign-in, authentication, logout, OIDC/PKCE integration, or backend JWT/token validation to a project, page, component, or API — in any repo, not just this one.
 ---
 
 # Portable OIDC + PKCE client skill
@@ -37,6 +37,10 @@ bundled script and wire it up per the contract below.
    returns a CORS or "Invalid origin" error), point `token_endpoint` at a
    same-origin server-side proxy that strips the `Origin`/`Referer`
    headers, rather than hitting the IdP directly from the browser.
+5. If the project has (or needs) a backend API that receives these tokens,
+   copy `assets/validate-token.js` into it and wire it up per the
+   "Server-side token validation" section below — do not skip this if any
+   backend route trusts `oidcUser`/`access_token` data from the client.
 
 ## Contract (the script's public surface — don't re-derive it, copy this)
 
@@ -92,6 +96,43 @@ whatever page loads it becomes its own callback handler.
    call `window.login()` for a manual "Log in" button when
    `autoLogin: false`.
 
+## Server-side token validation (Node.js)
+
+The browser-side script never verifies anything — it only decodes the
+`id_token` for display. **Any backend API that accepts a token from the
+client (e.g. `Authorization: Bearer <token>`) must independently verify
+its signature, issuer, and audience before trusting its claims.** Never
+treat `window.oidcUser`, `window.access_token`, or a decoded JWT payload
+sent from the client as authoritative on a server.
+
+Use `assets/validate-token.js` as the starting point — it's a complete,
+copy-pasteable Node.js module (needs `npm install jsonwebtoken`):
+
+- Reads the IdP's RS256 public key from a local file (`idp-public-key.pem`
+  by default) and caches it in memory after the first read — no JWKS
+  endpoint or network call needed on the request path.
+- `validateToken(token)` calls `jwt.verify(token, key, { algorithms:
+  ['RS256'], issuer, audience })`, which checks the signature, expiry,
+  `iss` (issuer), and `aud` (audience) claims together — a token signed by
+  the right key but issued for the wrong realm or the wrong
+  `client_id`/audience is rejected, not just one with a bad signature.
+- `requireAuth(req, res, next)` is a ready-to-use Express middleware
+  example built on `validateToken`.
+
+To adapt it to a target project:
+1. Set `ISSUER` to the exact value of the token's `iss` claim (the IdP
+   realm/issuer URL) and `AUDIENCE` to the token's expected `aud` claim
+   (usually the OIDC client's `client_id` — must match
+   `OIDC_CONFIG.client_id` from the frontend setup).
+2. Export the IdP's RS256 public key to a `.pem` file reachable by the
+   backend process and point `PUBLIC_KEY_PATH` at it.
+3. If the IdP rotates its signing key, the `.pem` file must be updated and
+   the process restarted (or the cached `publicKey` invalidated) — static
+   file-based keys don't auto-rotate the way a JWKS endpoint would.
+4. Wire `requireAuth` (or the framework-equivalent pattern) onto any route
+   that should require a valid session, and read verified claims from
+   `req.user` (or equivalent) rather than any client-supplied claims.
+
 ## Common mistakes to avoid
 
 - Defining `OIDC_CONFIG` after the `oidc_client.js` `<script>` tag — it
@@ -108,3 +149,7 @@ whatever page loads it becomes its own callback handler.
 - Assuming the IdP's token endpoint accepts direct browser `fetch()` —
   some clients (e.g. IDP with no Web Origins configured) reject any
   request carrying an `Origin` header; you may need a same-origin proxy.
+- Trusting a token's claims on the backend without verifying it first
+  (signature + issuer + audience) — a backend must never assume a
+  client-supplied token or decoded payload is genuine; see "Server-side
+  token validation" above.

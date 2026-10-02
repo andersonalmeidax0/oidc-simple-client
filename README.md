@@ -4,7 +4,7 @@ A dependency-free OIDC Authorization Code + PKCE client for plain HTML pages
 (`public/oidc_client.js`). It handles the login redirect, the callback
 exchange, session storage, and silent token refresh — and exposes the result
 as plain globals and `window` events, so any page can consume it: static
-HTML, vanilla JS, React, or anything else that runs in a browser.
+HTML, vanilla JS, React, or anything else that runs in a browser. 
 
 ## Objectives
 
@@ -200,3 +200,69 @@ Key points:
   populates the globals React reads on mount.
 - Any component tree can subscribe to the same events; nothing here is
   React-specific beyond the `useState`/`setState` glue.
+
+## Server-side: validating the token (Node.js)
+
+`oidc_client.js` only *decodes* the `id_token` client-side for display
+(`decodeIdToken` in the script) — it never verifies the signature. Treat
+`window.access_token` / `window.id_token` as untrusted on the client; any
+backend API that receives one (e.g. in an `Authorization: Bearer <token>`
+header) must independently verify its signature, issuer, and audience
+before trusting its claims.
+
+```js
+// npm install jsonwebtoken
+const fs = require('fs/promises');
+const jwt = require('jsonwebtoken');
+
+const ISSUER = 'https://idp.example.com/realms/default';
+const AUDIENCE = 'demo-client';
+const PUBLIC_KEY_PATH = './idp-public-key.pem'; // IdP's RS256 public key, exported to a file
+
+let publicKey; // cached after first read
+
+async function loadPublicKey() {
+  if (!publicKey) {
+    publicKey = await fs.readFile(PUBLIC_KEY_PATH, 'utf8');
+  }
+  return publicKey;
+}
+
+// Verifies signature, expiry, issuer, and audience; throws if any fail.
+async function validateToken(token) {
+  const key = await loadPublicKey();
+  return jwt.verify(token, key, {
+    algorithms: ['RS256'],
+    issuer: ISSUER,
+    audience: AUDIENCE,
+  });
+}
+
+// Example Express middleware
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Missing bearer token' });
+
+  try {
+    req.user = await validateToken(token);
+    next();
+  } catch (err) {
+    res.status(401).json({ error: `Invalid token: ${err.message}` });
+  }
+}
+
+module.exports = { validateToken, requireAuth };
+```
+
+Key points:
+- `issuer` and `audience` are checked by `jwt.verify` itself — a token
+  signed by the right key but issued for a different realm or a different
+  `client_id`/audience is rejected, not just one with a bad signature.
+- The public key is read from a local file instead of fetched from a JWKS
+  endpoint, so there's no `jwks-rsa` dependency or network call on the hot
+  path — it's read once and cached in memory for the life of the process.
+- If the IdP rotates its signing key, `idp-public-key.pem` must be updated
+  and the process restarted (or `publicKey` invalidated) to match.
+- This runs server-side only (`require`, Node's `fs`/`jsonwebtoken`) — it's
+  independent of `oidc_client.js`, which stays browser-only.
